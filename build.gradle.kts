@@ -35,6 +35,15 @@ dependencies {
 	testCompileOnly("org.projectlombok:lombok")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 	testAnnotationProcessor("org.projectlombok:lombok")
+	implementation("org.springframework.boot:spring-boot-starter-liquibase")
+	testImplementation("org.springframework.boot:spring-boot-starter-liquibase-test")
+	implementation("org.springframework.boot:spring-boot-starter-validation")
+	implementation("io.jsonwebtoken:jjwt-api:0.13.0")
+	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.13.0")
+	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.13.0")
+	implementation("io.minio:minio:9.0.0")
+	implementation("org.apache.poi:poi:5.5.0")
+	implementation("org.apache.poi:poi-ooxml:5.5.0")
 }
 
 kotlin {

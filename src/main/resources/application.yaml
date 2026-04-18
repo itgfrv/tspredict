@@ -1,3 +1,39 @@
 spring:
   application:
     name: tspredict
+  datasource:
+    url: jdbc:postgresql://localhost:5432/postgres
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  liquibase:
+    enabled: true
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+app:
+  security:
+    jwt:
+      secret: "Zu92IpbL1zdWfk2t78fPdf6l-S19Ol0Pja6rP6ysMd0kpNJNEGVkNCX97oBPUlt6"
+      expiration-minutes: 60
+  storage:
+    minio:
+      endpoint: http://localhost:9000
+      access-key: minioadmin
+      secret-key: minioadmin
+      bucket: tspredict
+
+server:
+  port: 8080
