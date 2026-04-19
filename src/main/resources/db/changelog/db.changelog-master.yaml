@@ -3,3 +3,9 @@ databaseChangeLog:
       file: db/changelog/migrations/001-init-schema.sql
   - include:
       file: db/changelog/migrations/002-dataset-schema.sql
+  - include:
+      file: db/changelog/migrations/003-model-registry-schema.sql
+  - include:
+      file: db/changelog/migrations/004-experiments-schema.sql
+  - include:
+      file: db/changelog/migrations/005-alter-experiments-add-modes.sql

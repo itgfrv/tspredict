@@ -26,4 +26,14 @@ class ApiExceptionHandler {
         problem.title = "Validation error"
         return problem
     }
+
+    @ExceptionHandler(IllegalArgumentException::class)
+    fun handleIllegalArgument(ex: IllegalArgumentException): ProblemDetail {
+        val problem = ProblemDetail.forStatusAndDetail(
+            HttpStatus.BAD_REQUEST,
+            ex.message ?: "Bad request"
+        )
+        problem.title = "Bad request"
+        return problem
+    }
 }
