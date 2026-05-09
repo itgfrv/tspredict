@@ -9,3 +9,13 @@ databaseChangeLog:
       file: db/changelog/migrations/004-experiments-schema.sql
   - include:
       file: db/changelog/migrations/005-alter-experiments-add-modes.sql
+  - include:
+      file: db/changelog/migrations/006-create-experiment-runs.sql
+  - include:
+      file: db/changelog/migrations/007-alter-experiments-drop-legacy-not-null.sql
+  - include:
+      file: db/changelog/migrations/008-alter-experiments-add-ensemble-config.sql
+  - include:
+      file: db/changelog/migrations/009-alter-experiments-add-ensemble-result.sql
+
+

@@ -3,6 +3,7 @@ package com.gafarov.tspredict.controller
 import com.gafarov.tspredict.dto.CreateExperimentRequest
 import com.gafarov.tspredict.dto.ExperimentResponse
 import com.gafarov.tspredict.dto.ExperimentResultResponse
+import com.gafarov.tspredict.dto.ExperimentRunResponse
 import com.gafarov.tspredict.service.ExperimentService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
@@ -28,6 +29,13 @@ class ExperimentController(
         @PathVariable experimentId: UUID
     ): ExperimentResponse {
         return experimentService.getExperimentById(experimentId)
+    }
+
+    @GetMapping("/api/experiments/{experimentId}/runs")
+    fun getExperimentRuns(
+        @PathVariable experimentId: UUID
+    ): List<ExperimentRunResponse> {
+        return experimentService.getExperimentRuns(experimentId)
     }
 
     @GetMapping("/api/experiments/{experimentId}/result")

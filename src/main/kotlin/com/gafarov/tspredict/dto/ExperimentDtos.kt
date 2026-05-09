@@ -2,6 +2,7 @@ package com.gafarov.tspredict.dto
 
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotEmpty
 import jakarta.validation.constraints.NotNull
 import java.time.LocalDateTime
 import java.util.UUID
@@ -13,8 +14,8 @@ data class CreateExperimentRequest(
     @field:NotNull
     val datasetId: UUID,
 
-    @field:NotNull
-    val modelId: UUID,
+    @field:NotEmpty
+    val modelIds: List<UUID>,
 
     @field:Min(1)
     val horizon: Int,
@@ -22,15 +23,16 @@ data class CreateExperimentRequest(
     val forecastMode: String = "OUT_OF_SAMPLE",
     val decompositionEnabled: Boolean = false,
     val ensembleEnabled: Boolean = false,
+    val ensembleMode: String = "NONE",
+    val ensembleConfig: Map<String, Any?> = emptyMap(),
 
-    val parameters: Map<String, Any?> = emptyMap()
+    val parameters: Map<String, Map<String, Any?>> = emptyMap()
 )
 
 data class ExperimentResponse(
     val id: UUID,
     val projectId: UUID,
     val datasetId: UUID,
-    val modelId: UUID,
     val name: String,
     val status: String,
     val horizon: Int,
@@ -38,7 +40,10 @@ data class ExperimentResponse(
     val decompositionEnabled: Boolean,
     val ensembleEnabled: Boolean,
     val createdAt: LocalDateTime,
-    val updatedAt: LocalDateTime
+    val updatedAt: LocalDateTime,
+    val ensembleMode: String,
+    val ensembleConfigJson: String?,
+    val ensembleResultJson: String?,
 )
 
 data class ExperimentResultResponse(

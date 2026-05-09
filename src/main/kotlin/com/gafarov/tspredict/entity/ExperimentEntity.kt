@@ -44,7 +44,18 @@ class ExperimentEntity(
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
     @Column(name = "updated_at", nullable = false)
-    var updatedAt: LocalDateTime = LocalDateTime.now()
+    var updatedAt: LocalDateTime = LocalDateTime.now(),
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "ensemble_config_json", columnDefinition = "jsonb")
+    var ensembleConfigJson: String? = null,
+
+    @Column(name = "ensemble_mode", nullable = false)
+    var ensembleMode: String = "NONE",
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "ensemble_result_json", columnDefinition = "jsonb")
+    var ensembleResultJson: String? = null,
 ) {
 
     @ManyToOne(fetch = FetchType.LAZY)
