@@ -29,8 +29,10 @@ class DatasetController(
         @RequestParam("orientation") orientation: String,
         @RequestParam("dateColumnName", required = false) dateColumnName: String?,
         @RequestParam("valueColumnName", required = false) valueColumnName: String?,
+        @RequestParam("exogenousColumnNames", required = false) exogenousColumnNames: String?,
         @RequestParam("dateRowIndex", required = false) dateRowIndex: Int?,
         @RequestParam("valueRowIndex", required = false) valueRowIndex: Int?,
+        @RequestParam("exogenousRowIndexes", required = false) exogenousRowIndexes: String?,
         @RequestParam("frequency", required = false) frequency: String?
     ): DatasetResponse {
         val command = DatasetUploadCommand(
@@ -39,8 +41,10 @@ class DatasetController(
             orientation = orientation,
             dateColumnName = dateColumnName,
             valueColumnName = valueColumnName,
+            exogenousColumnNames = parseStringList(exogenousColumnNames),
             dateRowIndex = dateRowIndex,
             valueRowIndex = valueRowIndex,
+            exogenousRowIndexes = parseIntList(exogenousRowIndexes),
             frequency = frequency
         )
 
@@ -66,5 +70,20 @@ class DatasetController(
         @PathVariable datasetId: UUID
     ): DatasetSeriesResponse {
         return datasetSeriesService.getDatasetSeries(datasetId)
+    }
+
+    private fun parseStringList(value: String?): List<String> {
+        return value
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+    }
+
+    private fun parseIntList(value: String?): List<Int> {
+        return parseStringList(value).map { raw ->
+            raw.toIntOrNull()
+                ?: throw IllegalArgumentException("Invalid integer value: $raw")
+        }
     }
 }

@@ -17,5 +17,15 @@ databaseChangeLog:
       file: db/changelog/migrations/008-alter-experiments-add-ensemble-config.sql
   - include:
       file: db/changelog/migrations/009-alter-experiments-add-ensemble-result.sql
-
-
+  - include:
+      file: db/changelog/migrations/010-alter-experiment-runs-add-error-message.sql
+  - include:
+      file: db/changelog/migrations/011-alter-experiment-runs-add-external-job-id.sql
+  - include:
+      file: db/changelog/migrations/012-alter-model-registry-add-supports-exogenous.sql
+  - include:
+      file: db/changelog/migrations/013-alter-datasets-add-exogenous-series.sql
+  - include:
+      file: db/changelog/migrations/014-alter-model-registry-add-request-routing-key.sql
+  - include:
+      file: db/changelog/migrations/015-alter-experiment-runs-add-prepared-input-json.sql

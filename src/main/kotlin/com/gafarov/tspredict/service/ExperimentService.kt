@@ -9,6 +9,8 @@ import com.gafarov.tspredict.repository.ExperimentRepository
 import com.gafarov.tspredict.repository.ExperimentRunRepository
 import com.gafarov.tspredict.repository.ModelRegistryRepository
 import com.gafarov.tspredict.repository.ProjectRepository
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import tools.jackson.databind.ObjectMapper
@@ -28,31 +30,40 @@ class ExperimentService(
     private val timeSeriesDecompositionService: TimeSeriesDecompositionService,
     private val objectMapper: ObjectMapper,
     private val ensembleService: EnsembleService,
+    private val forecastJobRequestPublisher: ForecastJobRequestPublisher,
+    private val eventPublisher: ApplicationEventPublisher,
+    @Value("\${app.forecast-requests.enabled:true}")
+    private val forecastRequestsEnabled: Boolean,
 ) {
 
     fun createExperiment(projectId: UUID, request: CreateExperimentRequest): ExperimentResponse {
         val experiment = createExperimentRecord(projectId, request)
 
-        val runIds = createExperimentRuns(experiment.id, request)
+        createExperimentRuns(experiment.id, request)
+        eventPublisher.publishEvent(ExperimentExecutionRequestedEvent(experiment.id))
 
-        var hasFailure = false
-        var hasSuccess = false
+        return getExperimentById(experiment.id)
+    }
+
+    fun executeExperiment(experimentId: UUID) {
+        markExperimentRunning(experimentId)
+
+        val runIds = experimentRunRepository.findAllByExperimentIdOrderByCreatedAtAsc(experimentId)
+            .map { it.id }
 
         runIds.forEach { runId ->
             try {
-                executeRun(runId, request)
-                hasSuccess = true
+                markRunRunning(runId)
+                when (executeRun(runId)) {
+                    RunExecutionOutcome.COMPLETED -> Unit
+                    RunExecutionOutcome.SUBMITTED -> Unit
+                }
             } catch (ex: Exception) {
-                markRunFailed(runId)
-                hasFailure = true
+                markRunFailed(runId, ex.message)
             }
         }
 
-        buildAndSaveEnsembleIfNeeded(experiment.id)
-
-        updateExperimentStatus(experiment.id, hasSuccess = hasSuccess, hasFailure = hasFailure)
-
-        return getExperimentById(experiment.id)
+        finalizeExperimentIfFinished(experimentId)
     }
 
     @Transactional
@@ -94,7 +105,7 @@ class ExperimentService(
 
         val experiment = ExperimentEntity(
             name = request.name.trim(),
-            status = "RUNNING",
+            status = "PENDING",
             horizon = request.horizon,
             forecastMode = forecastMode,
             decompositionEnabled = request.decompositionEnabled,
@@ -117,11 +128,15 @@ class ExperimentService(
             val model = modelRegistryRepository.findById(modelId)
                 .orElseThrow { IllegalArgumentException("Model not found: $modelId") }
 
+            if (!model.enabled) {
+                throw IllegalArgumentException("Model is disabled: $modelId")
+            }
+
             val perModelParams = request.parameters[modelId.toString()] ?: emptyMap<String, Any?>()
             val paramsJson = objectMapper.writeValueAsString(perModelParams)
 
             val run = ExperimentRunEntity(
-                status = "RUNNING",
+                status = "PENDING",
                 parametersJson = paramsJson
             )
 
@@ -132,87 +147,60 @@ class ExperimentService(
         }
     }
 
-    fun executeRun(runId: UUID, request: CreateExperimentRequest) {
-        val run = experimentRunRepository.findById(runId)
-            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+    fun executeRun(runId: UUID): RunExecutionOutcome {
+        val context = loadRunExecutionContext(runId)
+        val preparedInput = buildPreparedRunInput(context)
+        savePreparedInputSnapshot(runId, preparedInput)
 
-        val experiment = run.experiment
-        val dataset = experiment.dataset
+        if (context.supportsAsync) {
+            if (forecastRequestsEnabled) {
+                val jobId = UUID.randomUUID().toString()
 
-        val fullSeries = datasetSeriesReaderService.readDatasetSeries(dataset.id)
-        validateSeries(fullSeries)
-
-        val mode = experiment.forecastMode.uppercase()
-        val horizon = experiment.horizon
-
-        val trainSeries: ForecastDatasetPayload
-        val actualSeries: ExperimentSeriesPayload?
-
-        when (mode) {
-            "OUT_OF_SAMPLE" -> {
-                trainSeries = fullSeries
-                actualSeries = null
-            }
-            "IN_SAMPLE" -> {
-                if (fullSeries.values.size <= horizon) {
-                    throw IllegalArgumentException("Not enough points for IN_SAMPLE forecast with horizon=$horizon")
-                }
-
-                val splitIndex = fullSeries.values.size - horizon
-
-                trainSeries = ForecastDatasetPayload(
-                    timestamps = fullSeries.timestamps.take(splitIndex),
-                    values = fullSeries.values.take(splitIndex),
-                    frequency = fullSeries.frequency
+                markRunSubmitted(runId, jobId)
+                forecastJobRequestPublisher.publishForecastJob(
+                    jobId = jobId,
+                    runId = runId,
+                    experimentId = context.experimentId,
+                    modelKey = context.modelKey,
+                    payload = preparedInput.forecastRequestPayload,
+                    requestRoutingKey = context.requestRoutingKey
                 )
 
-                actualSeries = ExperimentSeriesPayload(
-                    timestamps = fullSeries.timestamps.takeLast(horizon),
-                    values = fullSeries.values.takeLast(horizon)
-                )
-            }
-            else -> throw IllegalArgumentException("Unsupported forecast mode: $mode")
-        }
-
-        val modelInputSeries: ForecastDatasetPayload
-        val decompositionResult = if (experiment.decompositionEnabled) {
-            if (!timeSeriesDecompositionService.shouldUseDecomposition(trainSeries.frequency)) {
-                throw IllegalArgumentException("Decomposition is not supported for frequency=${trainSeries.frequency}")
+                return RunExecutionOutcome.SUBMITTED
             }
 
-            val result = timeSeriesDecompositionService.decompose(
-                values = trainSeries.values,
-                frequency = trainSeries.frequency
+            val job = modelServiceClient.submitForecastJob(
+                serviceUrl = context.modelServiceUrl,
+                payload = preparedInput.forecastRequestPayload
             )
 
-            modelInputSeries = ForecastDatasetPayload(
-                timestamps = trainSeries.timestamps,
-                values = result.residual,
-                frequency = trainSeries.frequency
-            )
-
-            result
-        } else {
-            modelInputSeries = trainSeries
-            null
+            markRunSubmitted(runId, job.jobId)
+            return RunExecutionOutcome.SUBMITTED
         }
-
-        val runParameters = parseRunParameters(run.parametersJson)
-
-        val forecastRequestPayload = ForecastRequestPayload(
-            dataset = modelInputSeries,
-            horizon = horizon,
-            parameters = runParameters + mapOf(
-                "forecastMode" to mode,
-                "decompositionEnabled" to experiment.decompositionEnabled,
-                "ensembleEnabled" to experiment.ensembleEnabled
-            )
-        )
 
         val (forecastResponse, _) = modelServiceClient.forecast(
-            serviceUrl = run.model.serviceUrl,
-            payload = forecastRequestPayload
+            serviceUrl = context.modelServiceUrl,
+            payload = preparedInput.forecastRequestPayload
         )
+
+        completeRunWithForecast(
+            runId = runId,
+            forecastResponse = forecastResponse,
+            preparedInput = preparedInput
+        )
+
+        return RunExecutionOutcome.COMPLETED
+    }
+
+    fun completeRunWithForecast(
+        runId: UUID,
+        forecastResponse: ForecastResponsePayload,
+        preparedInput: PreparedRunInput
+    ) {
+        val trainSeries = preparedInput.trainSeries
+        val actualSeries = preparedInput.actualSeries
+        val mode = preparedInput.mode
+        val decompositionResult = preparedInput.decompositionResult
 
         val finalForecastValues = if (decompositionResult != null) {
             val reconstructed = timeSeriesDecompositionService.reconstructForecast(
@@ -262,6 +250,147 @@ class ExperimentService(
         markRunCompleted(runId, resultJson, metrics)
     }
 
+    fun completeExternalRun(runId: UUID, forecastResponse: ForecastResponsePayload) {
+        val preparedInput = loadPreparedInputSnapshot(runId)
+        completeRunWithForecast(runId, forecastResponse, preparedInput)
+    }
+
+    private fun buildPreparedRunInput(context: RunExecutionContext): PreparedRunInput {
+        val fullSeries = datasetSeriesReaderService.readDatasetSeries(context.datasetId)
+        validateSeries(fullSeries)
+
+        val mode = context.forecastMode.uppercase()
+        val horizon = context.horizon
+
+        val trainSeries: ForecastDatasetPayload
+        val actualSeries: ExperimentSeriesPayload?
+
+        when (mode) {
+            "OUT_OF_SAMPLE" -> {
+                trainSeries = fullSeries
+                actualSeries = null
+            }
+            "IN_SAMPLE" -> {
+                if (fullSeries.values.size <= horizon) {
+                    throw IllegalArgumentException("Not enough points for IN_SAMPLE forecast with horizon=$horizon")
+                }
+
+                val splitIndex = fullSeries.values.size - horizon
+
+                trainSeries = ForecastDatasetPayload(
+                    timestamps = fullSeries.timestamps.take(splitIndex),
+                    values = fullSeries.values.take(splitIndex),
+                    frequency = fullSeries.frequency,
+                    targetName = fullSeries.targetName,
+                    exogenous = sliceExogenous(fullSeries.exogenous, splitIndex)
+                )
+
+                actualSeries = ExperimentSeriesPayload(
+                    timestamps = fullSeries.timestamps.takeLast(horizon),
+                    values = fullSeries.values.takeLast(horizon)
+                )
+            }
+            else -> throw IllegalArgumentException("Unsupported forecast mode: $mode")
+        }
+
+        val requestExogenous = if (context.supportsExogenous) trainSeries.exogenous else emptyMap()
+        val requestTargetName = if (context.supportsExogenous) trainSeries.targetName else null
+
+        val modelInputSeries: ForecastDatasetPayload
+        val decompositionResult = if (context.decompositionEnabled) {
+            if (!timeSeriesDecompositionService.shouldUseDecomposition(trainSeries.frequency)) {
+                throw IllegalArgumentException("Decomposition is not supported for frequency=${trainSeries.frequency}")
+            }
+
+            val result = timeSeriesDecompositionService.decompose(
+                values = trainSeries.values,
+                frequency = trainSeries.frequency
+            )
+
+            modelInputSeries = ForecastDatasetPayload(
+                timestamps = trainSeries.timestamps,
+                values = result.residual,
+                frequency = trainSeries.frequency,
+                targetName = requestTargetName,
+                exogenous = requestExogenous
+            )
+
+            result
+        } else {
+            modelInputSeries = ForecastDatasetPayload(
+                timestamps = trainSeries.timestamps,
+                values = trainSeries.values,
+                frequency = trainSeries.frequency,
+                targetName = requestTargetName,
+                exogenous = requestExogenous
+            )
+            null
+        }
+
+        val runParameters = parseRunParameters(context.parametersJson)
+
+        val forecastRequestPayload = ForecastRequestPayload(
+            dataset = modelInputSeries,
+            horizon = horizon,
+            parameters = runParameters + mapOf(
+                "forecastMode" to mode,
+                "decompositionEnabled" to context.decompositionEnabled,
+                "ensembleEnabled" to context.ensembleEnabled,
+                "exogenousEnabled" to (context.supportsExogenous && requestExogenous.isNotEmpty())
+            )
+        )
+
+        return PreparedRunInput(
+            forecastRequestPayload = forecastRequestPayload,
+            trainSeries = trainSeries,
+            actualSeries = actualSeries,
+            mode = mode,
+            decompositionResult = decompositionResult
+        )
+    }
+
+    private fun loadRunExecutionContext(runId: UUID): RunExecutionContext {
+        val run = experimentRunRepository.findWithExperimentAndModelById(runId)
+            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+
+        val experiment = run.experiment
+
+        return RunExecutionContext(
+            experimentId = experiment.id,
+            datasetId = experiment.dataset.id,
+            modelKey = run.model.modelKey,
+            modelServiceUrl = run.model.serviceUrl,
+            requestRoutingKey = run.model.requestRoutingKey,
+            supportsAsync = run.model.supportsAsync,
+            supportsExogenous = run.model.supportsExogenous,
+            forecastMode = experiment.forecastMode,
+            horizon = experiment.horizon,
+            decompositionEnabled = experiment.decompositionEnabled,
+            ensembleEnabled = experiment.ensembleEnabled,
+            parametersJson = run.parametersJson
+        )
+    }
+
+    private fun savePreparedInputSnapshot(runId: UUID, preparedInput: PreparedRunInput) {
+        val run = experimentRunRepository.findById(runId)
+            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+
+        run.preparedInputJson = objectMapper.writeValueAsString(preparedInput)
+        experimentRunRepository.save(run)
+    }
+
+    private fun loadPreparedInputSnapshot(runId: UUID): PreparedRunInput {
+        val run = experimentRunRepository.findById(runId)
+            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+
+        val snapshotJson = run.preparedInputJson
+        if (!snapshotJson.isNullOrBlank()) {
+            return objectMapper.readValue(snapshotJson, PreparedRunInput::class.java)
+        }
+
+        return buildPreparedRunInput(loadRunExecutionContext(runId))
+    }
+
     @Transactional
     fun markRunCompleted(runId: UUID, resultJson: String, metrics: ExperimentMetricsPayload?) {
         val run = experimentRunRepository.findById(runId)
@@ -269,6 +398,8 @@ class ExperimentService(
 
         run.status = "COMPLETED"
         run.resultJson = resultJson
+        run.errorMessage = null
+        run.externalJobId = null
         run.mae = metrics?.mae
         run.rmse = metrics?.rmse
 
@@ -276,12 +407,53 @@ class ExperimentService(
     }
 
     @Transactional
-    fun markRunFailed(runId: UUID) {
+    fun markRunRunning(runId: UUID) {
+        val run = experimentRunRepository.findById(runId)
+            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+
+        run.status = "RUNNING"
+        run.errorMessage = null
+        experimentRunRepository.save(run)
+    }
+
+    @Transactional
+    fun markRunSubmitted(runId: UUID, externalJobId: String) {
+        val run = experimentRunRepository.findById(runId)
+            .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
+
+        run.status = "RUNNING"
+        run.externalJobId = externalJobId
+        run.errorMessage = null
+        experimentRunRepository.save(run)
+    }
+
+    @Transactional
+    fun markRunFailed(runId: UUID, errorMessage: String?) {
         val run = experimentRunRepository.findById(runId)
             .orElseThrow { IllegalArgumentException("Experiment run not found: $runId") }
 
         run.status = "FAILED"
+        run.errorMessage = errorMessage?.take(2000)
+        run.externalJobId = null
         experimentRunRepository.save(run)
+    }
+
+    @Transactional
+    fun markExperimentRunning(experimentId: UUID) {
+        val experiment = experimentRepository.findById(experimentId)
+            .orElseThrow { IllegalArgumentException("Experiment not found: $experimentId") }
+
+        experiment.status = "RUNNING"
+        experimentRepository.save(experiment)
+    }
+
+    @Transactional
+    fun markExperimentFailed(experimentId: UUID) {
+        val experiment = experimentRepository.findById(experimentId)
+            .orElseThrow { IllegalArgumentException("Experiment not found: $experimentId") }
+
+        experiment.status = "FAILED"
+        experimentRepository.save(experiment)
     }
 
     @Transactional
@@ -296,6 +468,23 @@ class ExperimentService(
         }
 
         experimentRepository.save(experiment)
+    }
+
+    @Transactional
+    fun finalizeExperimentIfFinished(experimentId: UUID) {
+        val runs = experimentRunRepository.findAllByExperimentIdOrderByCreatedAtAsc(experimentId)
+        if (runs.any { it.status == "PENDING" || it.status == "RUNNING" }) {
+            return
+        }
+
+        val hasSuccess = runs.any { it.status == "COMPLETED" }
+        val hasFailure = runs.any { it.status == "FAILED" }
+
+        if (hasSuccess) {
+            buildAndSaveEnsembleIfNeeded(experimentId)
+        }
+
+        updateExperimentStatus(experimentId, hasSuccess = hasSuccess, hasFailure = hasFailure)
     }
 
     @Transactional(readOnly = true)
@@ -358,6 +547,19 @@ class ExperimentService(
         if (series.timestamps.isEmpty()) {
             throw IllegalArgumentException("Dataset series is empty")
         }
+
+        series.exogenous.forEach { (name, values) ->
+            if (values.size != series.values.size) {
+                throw IllegalArgumentException("Exogenous series '$name' length does not match target series")
+            }
+        }
+    }
+
+    private fun sliceExogenous(
+        exogenous: Map<String, List<Double>>,
+        endIndex: Int
+    ): Map<String, List<Double>> {
+        return exogenous.mapValues { (_, values) -> values.take(endIndex) }
     }
 
     private fun calculateMae(actual: List<Double>, forecast: List<Double>): Double {
@@ -402,9 +604,39 @@ class ExperimentService(
             status = status,
             parametersJson = parametersJson,
             resultJson = resultJson,
+            errorMessage = errorMessage,
+            externalJobId = externalJobId,
             mae = mae,
             rmse = rmse,
             createdAt = createdAt,
             updatedAt = updatedAt
         )
+
+    private data class RunExecutionContext(
+        val experimentId: UUID,
+        val datasetId: UUID,
+        val modelKey: String,
+        val modelServiceUrl: String,
+        val requestRoutingKey: String?,
+        val supportsAsync: Boolean,
+        val supportsExogenous: Boolean,
+        val forecastMode: String,
+        val horizon: Int,
+        val decompositionEnabled: Boolean,
+        val ensembleEnabled: Boolean,
+        val parametersJson: String?,
+    )
+
+    data class PreparedRunInput(
+        val forecastRequestPayload: ForecastRequestPayload,
+        val trainSeries: ForecastDatasetPayload,
+        val actualSeries: ExperimentSeriesPayload?,
+        val mode: String,
+        val decompositionResult: DecompositionResult?,
+    )
+
+    enum class RunExecutionOutcome {
+        COMPLETED,
+        SUBMITTED
+    }
 }

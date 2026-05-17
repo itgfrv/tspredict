@@ -12,6 +12,8 @@ data class ExperimentRunResponse(
     val status: String,
     val parametersJson: String?,
     val resultJson: String?,
+    val errorMessage: String?,
+    val externalJobId: String?,
     val mae: Double?,
     val rmse: Double?,
     val createdAt: LocalDateTime,

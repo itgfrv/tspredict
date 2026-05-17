@@ -1,6 +1,7 @@
 package com.gafarov.tspredict.common.http
 
 import com.gafarov.tspredict.dto.ForecastRequestPayload
+import com.gafarov.tspredict.dto.ForecastJobCreatedResponse
 import com.gafarov.tspredict.dto.ForecastResponsePayload
 import com.gafarov.tspredict.dto.HealthResponse
 import com.gafarov.tspredict.dto.ModelServiceMetadataResponse
@@ -46,5 +47,17 @@ class ModelServiceClient(
 
         val rawJson = objectMapper.writeValueAsString(response)
         return response to rawJson
+    }
+
+    fun submitForecastJob(
+        serviceUrl: String,
+        payload: ForecastRequestPayload
+    ): ForecastJobCreatedResponse {
+        return restClient.post()
+            .uri("${serviceUrl.trimEnd('/')}/forecast-jobs")
+            .body(payload)
+            .retrieve()
+            .body(ForecastJobCreatedResponse::class.java)
+            ?: throw IllegalArgumentException("Forecast job response is empty")
     }
 }

@@ -6,7 +6,9 @@ data class DatasetUploadCommand(
     val orientation: String,
     val dateColumnName: String?,
     val valueColumnName: String?,
+    val exogenousColumnNames: List<String> = emptyList(),
     val dateRowIndex: Int?,
     val valueRowIndex: Int?,
+    val exogenousRowIndexes: List<Int> = emptyList(),
     val frequency: String?
 )

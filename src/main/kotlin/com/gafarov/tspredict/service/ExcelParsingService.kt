@@ -12,7 +12,14 @@ import java.io.InputStream
 
 data class ParsedSeriesRow(
     val timestamp: String,
-    val value: String
+    val value: String,
+    val exogenous: Map<String, String> = emptyMap()
+)
+
+data class ParsedDatasetSeries(
+    val targetSeriesName: String,
+    val exogenousSeriesNames: List<String>,
+    val rows: List<ParsedSeriesRow>
 )
 
 @Service
@@ -24,8 +31,9 @@ class ExcelParsingService {
         inputStream: InputStream,
         sheetName: String,
         dateColumnName: String,
-        valueColumnName: String
-    ): List<ParsedSeriesRow> {
+        valueColumnName: String,
+        exogenousColumnNames: List<String> = emptyList()
+    ): ParsedDatasetSeries {
         WorkbookFactory.create(inputStream).use { workbook ->
             val sheet = workbook.getSheet(sheetName)
                 ?: throw IllegalArgumentException("Sheet not found: $sheetName")
@@ -41,6 +49,11 @@ class ExcelParsingService {
             val valueCol = columnIndexes[valueColumnName]
                 ?: throw IllegalArgumentException("Value column not found: $valueColumnName")
 
+            val exogenousColumns = exogenousColumnNames.associateWith { columnName ->
+                columnIndexes[columnName]
+                    ?: throw IllegalArgumentException("Exogenous column not found: $columnName")
+            }
+
             val result = mutableListOf<ParsedSeriesRow>()
 
             for (rowIndex in (sheet.firstRowNum + 1)..sheet.lastRowNum) {
@@ -51,11 +64,28 @@ class ExcelParsingService {
 
                 val timestamp = extractCellAsIsoDate(dateCell) ?: continue
                 val value = extractNumericCellAsNormalizedString(valueCell) ?: continue
+                val exogenous = exogenousColumns.mapValues { (_, columnIndex) ->
+                    extractNumericCellAsNormalizedString(row.getCell(columnIndex))
+                }
 
-                result.add(ParsedSeriesRow(timestamp = timestamp, value = value))
+                if (exogenous.values.any { it == null }) {
+                    continue
+                }
+
+                result.add(
+                    ParsedSeriesRow(
+                        timestamp = timestamp,
+                        value = value,
+                        exogenous = exogenous.mapValues { (_, rawValue) -> rawValue!! }
+                    )
+                )
             }
 
-            return result
+            return ParsedDatasetSeries(
+                targetSeriesName = valueColumnName,
+                exogenousSeriesNames = exogenousColumnNames,
+                rows = result
+            )
         }
     }
 
@@ -63,8 +93,9 @@ class ExcelParsingService {
         inputStream: InputStream,
         sheetName: String,
         dateRowIndex: Int,
-        valueRowIndex: Int
-    ): List<ParsedSeriesRow> {
+        valueRowIndex: Int,
+        exogenousRowIndexes: List<Int> = emptyList()
+    ): ParsedDatasetSeries {
         WorkbookFactory.create(inputStream).use { workbook ->
             val sheet = workbook.getSheet(sheetName)
                 ?: throw IllegalArgumentException("Sheet not found: $sheetName")
@@ -75,7 +106,16 @@ class ExcelParsingService {
             val valueRow = sheet.getRow(valueRowIndex)
                 ?: throw IllegalArgumentException("Value row not found: $valueRowIndex")
 
-            val maxColumn = maxOf(dateRow.lastCellNum.toInt(), valueRow.lastCellNum.toInt())
+            val exogenousRows = exogenousRowIndexes.associateWith { rowIndex ->
+                sheet.getRow(rowIndex)
+                    ?: throw IllegalArgumentException("Exogenous row not found: $rowIndex")
+            }
+            val exogenousSeriesNames = exogenousRows.map { (rowIndex, row) ->
+                resolveRowName(row, rowIndex)
+            }
+
+            val maxColumn = (listOf(dateRow, valueRow) + exogenousRows.values)
+                .maxOf { it.lastCellNum.toInt() }
 
             val result = mutableListOf<ParsedSeriesRow>()
 
@@ -85,11 +125,28 @@ class ExcelParsingService {
 
                 val timestamp = extractCellAsIsoDate(dateCell) ?: continue
                 val value = extractNumericCellAsNormalizedString(valueCell) ?: continue
+                val exogenous = exogenousRows.map { (rowIndex, row) ->
+                    resolveRowName(row, rowIndex) to extractNumericCellAsNormalizedString(row.getCell(colIndex))
+                }
 
-                result.add(ParsedSeriesRow(timestamp = timestamp, value = value))
+                if (exogenous.any { it.second == null }) {
+                    continue
+                }
+
+                result.add(
+                    ParsedSeriesRow(
+                        timestamp = timestamp,
+                        value = value,
+                        exogenous = exogenous.associate { (name, rawValue) -> name to rawValue!! }
+                    )
+                )
             }
 
-            return result
+            return ParsedDatasetSeries(
+                targetSeriesName = resolveRowName(valueRow, valueRowIndex),
+                exogenousSeriesNames = exogenousSeriesNames,
+                rows = result
+            )
         }
     }
 
@@ -102,6 +159,13 @@ class ExcelParsingService {
             }
         }
         return result
+    }
+
+    private fun resolveRowName(row: Row, rowIndex: Int): String {
+        return formatter.formatCellValue(row.getCell(0))
+            .trim()
+            .takeIf { it.isNotBlank() }
+            ?: "row_$rowIndex"
     }
 
     private fun extractCellAsIsoDate(cell: Cell?): String? {

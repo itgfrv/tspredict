@@ -12,7 +12,9 @@ fun ModelRegistryEntity.toResponse(): ModelRegistryResponse =
         serviceUrl = serviceUrl,
         enabled = enabled,
         supportsAsync = supportsAsync,
+        supportsExogenous = supportsExogenous,
         description = description,
         createdAt = createdAt,
-        metadataJson = metadataJson
+        metadataJson = metadataJson,
+        requestRoutingKey = requestRoutingKey
     )

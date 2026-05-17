@@ -8,6 +8,7 @@ import com.gafarov.tspredict.mapper.toResponse
 import com.gafarov.tspredict.repository.ModelRegistryRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.util.UUID
 
 @Service
 class ModelRegistryService(
@@ -35,13 +36,18 @@ class ModelRegistryService(
             throw IllegalArgumentException("Model with key '$modelKey' already registered")
         }
 
+        val requestRoutingKey = normalizeRoutingKey(request.requestRoutingKey)
+            ?: normalizeRoutingKey(metadata.requestRoutingKey)
+
         val entity = ModelRegistryEntity(
             modelKey = modelKey,
             displayName = metadata.displayName.trim(),
             kind = metadata.kind.trim(),
             serviceUrl = serviceUrl,
+            requestRoutingKey = requestRoutingKey,
             enabled = true,
             supportsAsync = metadata.supportsAsync,
+            supportsExogenous = metadata.supportsExogenous,
             description = metadata.description?.trim()?.takeIf { it.isNotBlank() },
             metadataJson = metadataJson
         )
@@ -60,5 +66,18 @@ class ModelRegistryService(
     fun getAllModels(): List<ModelRegistryResponse> {
         return modelRegistryRepository.findAllByOrderByCreatedAtDesc()
             .map { it.toResponse() }
+    }
+
+    @Transactional
+    fun disableModel(modelId: UUID) {
+        val model = modelRegistryRepository.findById(modelId)
+            .orElseThrow { IllegalArgumentException("Model not found: $modelId") }
+
+        model.enabled = false
+        modelRegistryRepository.save(model)
+    }
+
+    private fun normalizeRoutingKey(routingKey: String?): String? {
+        return routingKey?.trim()?.takeIf { it.isNotBlank() }
     }
 }

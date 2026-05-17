@@ -11,6 +11,7 @@ import com.gafarov.tspredict.repository.ProjectRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
+import tools.jackson.databind.ObjectMapper
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
@@ -24,7 +25,9 @@ data class DatasetResponse(
     val orientation: String,
     val dateColumnName: String?,
     val valueColumnName: String?,
-    val pointsCount: Int
+    val pointsCount: Int,
+    val targetSeriesName: String?,
+    val exogenousSeriesNames: List<String>
 )
 
 @Service
@@ -32,7 +35,8 @@ class DatasetService(
     private val datasetRepository: DatasetRepository,
     private val projectRepository: ProjectRepository,
     private val storageService: MinioStorageService,
-    private val excelParsingService: ExcelParsingService
+    private val excelParsingService: ExcelParsingService,
+    private val objectMapper: ObjectMapper
 ) {
 
     @Transactional
@@ -59,41 +63,54 @@ class DatasetService(
 
         val orientation = requireNotBlank(command.orientation, "orientation")
 
-        val parsedRows = when (orientation.uppercase()) {
+        val parsedSeries = when (orientation.uppercase()) {
             "VERTICAL" -> {
                 val dateColumnName = requireNotBlank(command.dateColumnName, "dateColumnName")
                 val valueColumnName = requireNotBlank(command.valueColumnName, "valueColumnName")
+                val exogenousColumnNames = command.exogenousColumnNames.map { requireNotBlank(it, "exogenousColumnNames") }
+                if (valueColumnName in exogenousColumnNames) {
+                    throw IllegalArgumentException("Target column cannot be used as exogenous column")
+                }
 
                 excelParsingService.parseVertical(
                     inputStream = fileBytes.inputStream(),
                     sheetName = requireNotBlank(command.sheetName, "sheetName"),
                     dateColumnName = dateColumnName,
-                    valueColumnName = valueColumnName
+                    valueColumnName = valueColumnName,
+                    exogenousColumnNames = exogenousColumnNames
                 )
             }
 
             "HORIZONTAL" -> {
                 val dateRowIndex = requireNonNegative(command.dateRowIndex, "dateRowIndex")
                 val valueRowIndex = requireNonNegative(command.valueRowIndex, "valueRowIndex")
+                val exogenousRowIndexes = command.exogenousRowIndexes.map {
+                    requireNonNegative(it, "exogenousRowIndexes")
+                }
+                if (valueRowIndex in exogenousRowIndexes) {
+                    throw IllegalArgumentException("Target row cannot be used as exogenous row")
+                }
 
                 excelParsingService.parseHorizontal(
                     inputStream = fileBytes.inputStream(),
                     sheetName = requireNotBlank(command.sheetName, "sheetName"),
                     dateRowIndex = dateRowIndex,
-                    valueRowIndex = valueRowIndex
+                    valueRowIndex = valueRowIndex,
+                    exogenousRowIndexes = exogenousRowIndexes
                 )
             }
 
             else -> throw IllegalArgumentException("Unsupported orientation: $orientation")
         }
 
+        val parsedRows = parsedSeries.rows
         val csv = buildString {
-            appendLine("timestamp,value")
+            appendCsvRow(listOf("timestamp", "value") + parsedSeries.exogenousSeriesNames)
             parsedRows.forEach { row ->
-                append(row.timestamp)
-                append(",")
-                append(row.value)
-                appendLine()
+                appendCsvRow(
+                    listOf(row.timestamp, row.value) +
+                        parsedSeries.exogenousSeriesNames.map { seriesName -> row.exogenous[seriesName].orEmpty() }
+                )
             }
         }
 
@@ -114,8 +131,12 @@ class DatasetService(
             orientation = orientation.uppercase(),
             dateColumnName = command.dateColumnName?.trim()?.takeIf { it.isNotEmpty() },
             valueColumnName = command.valueColumnName?.trim()?.takeIf { it.isNotEmpty() },
+            exogenousColumnNamesJson = writeJsonList(command.exogenousColumnNames),
             dateRowIndex = command.dateRowIndex,
             valueRowIndex = command.valueRowIndex,
+            exogenousRowIndexesJson = writeJsonList(command.exogenousRowIndexes),
+            targetSeriesName = parsedSeries.targetSeriesName,
+            exogenousSeriesNamesJson = writeJsonList(parsedSeries.exogenousSeriesNames),
             frequency = command.frequency?.trim()?.takeIf { it.isNotEmpty() },
             pointsCount = parsedRows.size
         )
@@ -134,7 +155,9 @@ class DatasetService(
             orientation = saved.orientation,
             dateColumnName = saved.dateColumnName,
             valueColumnName = saved.valueColumnName,
-            pointsCount = saved.pointsCount
+            pointsCount = saved.pointsCount,
+            targetSeriesName = saved.targetSeriesName,
+            exogenousSeriesNames = parsedSeries.exogenousSeriesNames
         )
     }
 
@@ -144,7 +167,28 @@ class DatasetService(
     }
 
     private fun requireNonNegative(value: Int?, fieldName: String): Int {
-        return value ?: throw IllegalArgumentException("$fieldName is required")
+        val result = value ?: throw IllegalArgumentException("$fieldName is required")
+        if (result < 0) {
+            throw IllegalArgumentException("$fieldName must be >= 0")
+        }
+        return result
+    }
+
+    private fun StringBuilder.appendCsvRow(values: List<String>) {
+        append(values.joinToString(",") { escapeCsvValue(it) })
+        appendLine()
+    }
+
+    private fun escapeCsvValue(value: String): String {
+        val shouldQuote = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        if (!shouldQuote) return value
+
+        return "\"" + value.replace("\"", "\"\"") + "\""
+    }
+
+    private fun writeJsonList(values: List<Any>): String? {
+        if (values.isEmpty()) return null
+        return objectMapper.writeValueAsString(values)
     }
 
     @Transactional(readOnly = true)

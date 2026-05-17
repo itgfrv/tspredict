@@ -13,6 +13,8 @@ data class ModelServiceMetadataResponse(
     val displayName: String,
     val kind: String,
     val supportsAsync: Boolean,
+    val supportsExogenous: Boolean = false,
+    val requestRoutingKey: String? = null,
     val description: String? = null,
     val parameters: List<ModelParameterMetadata> = emptyList()
 )

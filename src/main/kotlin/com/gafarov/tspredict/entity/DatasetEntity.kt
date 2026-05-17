@@ -2,6 +2,8 @@ package com.gafarov.tspredict.entity
 
 
 import jakarta.persistence.*
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.type.SqlTypes
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -37,11 +39,26 @@ class DatasetEntity(
     @Column(name = "value_column_name")
     var valueColumnName: String? = null,
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "exogenous_column_names_json", columnDefinition = "jsonb")
+    var exogenousColumnNamesJson: String? = null,
+
     @Column(name = "date_row_index")
     var dateRowIndex: Int? = null,
 
     @Column(name = "value_row_index")
     var valueRowIndex: Int? = null,
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "exogenous_row_indexes_json", columnDefinition = "jsonb")
+    var exogenousRowIndexesJson: String? = null,
+
+    @Column(name = "target_series_name")
+    var targetSeriesName: String? = null,
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "exogenous_series_names_json", columnDefinition = "jsonb")
+    var exogenousSeriesNamesJson: String? = null,
 
     @Column(name = "frequency")
     var frequency: String? = null,

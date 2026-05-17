@@ -33,11 +33,21 @@ class ExperimentRunEntity(
     @Column(name = "result_json", columnDefinition = "jsonb")
     var resultJson: String? = null,
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "prepared_input_json", columnDefinition = "jsonb")
+    var preparedInputJson: String? = null,
+
     @Column(name = "mae")
     var mae: Double? = null,
 
     @Column(name = "rmse")
     var rmse: Double? = null,
+
+    @Column(name = "error_message")
+    var errorMessage: String? = null,
+
+    @Column(name = "external_job_id")
+    var externalJobId: String? = null,
 
     @Column(name = "created_at", nullable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),

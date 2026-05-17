@@ -11,5 +11,7 @@ data class DatasetSummaryResponse(
     val orientation: String,
     val frequency: String?,
     val pointsCount: Int,
+    val targetSeriesName: String?,
+    val exogenousSeriesNames: List<String>,
     val createdAt: LocalDateTime
 )

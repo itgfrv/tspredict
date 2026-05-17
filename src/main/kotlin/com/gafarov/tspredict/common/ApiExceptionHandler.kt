@@ -36,4 +36,14 @@ class ApiExceptionHandler {
         problem.title = "Bad request"
         return problem
     }
+
+    @ExceptionHandler(IllegalStateException::class)
+    fun handleIllegalState(ex: IllegalStateException): ProblemDetail {
+        val problem = ProblemDetail.forStatusAndDetail(
+            HttpStatus.CONFLICT,
+            ex.message ?: "Request conflicts with current state"
+        )
+        problem.title = "Conflict"
+        return problem
+    }
 }

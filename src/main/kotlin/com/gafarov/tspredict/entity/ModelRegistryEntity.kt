@@ -31,11 +31,17 @@ class ModelRegistryEntity(
     @Column(name = "service_url", nullable = false)
     var serviceUrl: String,
 
+    @Column(name = "request_routing_key")
+    var requestRoutingKey: String? = null,
+
     @Column(name = "enabled", nullable = false)
     var enabled: Boolean = true,
 
     @Column(name = "supports_async", nullable = false)
     var supportsAsync: Boolean = false,
+
+    @Column(name = "supports_exogenous", nullable = false)
+    var supportsExogenous: Boolean = false,
 
     @Column(name = "description")
     var description: String? = null,

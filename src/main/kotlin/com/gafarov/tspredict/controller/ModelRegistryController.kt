@@ -6,6 +6,7 @@ import com.gafarov.tspredict.service.ModelRegistryService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.*
+import java.util.UUID
 
 @RestController
 @RequestMapping("/api/models")
@@ -29,5 +30,13 @@ class ModelRegistryController(
     @GetMapping("/all")
     fun getAllModels(): List<ModelRegistryResponse> {
         return modelRegistryService.getAllModels()
+    }
+
+    @DeleteMapping("/{modelId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun deleteModel(
+        @PathVariable modelId: UUID
+    ) {
+        modelRegistryService.disableModel(modelId)
     }
 }

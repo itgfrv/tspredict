@@ -1,6 +1,11 @@
 spring:
   application:
     name: tspredict
+  rabbitmq:
+    host: 2.27.51.143
+    port: 5672
+    username: tspredict
+    password: tspredict
   datasource:
     url: jdbc:postgresql://localhost:5432/postgres
     username: postgres
@@ -28,12 +33,23 @@ app:
     jwt:
       secret: "Zu92IpbL1zdWfk2t78fPdf6l-S19Ol0Pja6rP6ysMd0kpNJNEGVkNCX97oBPUlt6"
       expiration-minutes: 60
+    cors:
+      allowed-origins: http://localhost:5173
   storage:
     minio:
       endpoint: http://localhost:9000
       access-key: minioadmin
       secret-key: minioadmin
       bucket: tspredict
+  forecast-results:
+    enabled: true
+    exchange: tspredict.forecasts
+    queue: tspredict.forecast-results
+    routing-key: forecast.result
+  forecast-requests:
+    enabled: true
+    exchange: tspredict.forecast-requests
+    routing-key-prefix: forecast.request
 
 server:
   port: 8080
