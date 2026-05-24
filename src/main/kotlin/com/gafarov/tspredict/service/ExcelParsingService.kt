@@ -173,14 +173,39 @@ class ExcelParsingService(
     private fun extractCellAsIsoDate(cell: Cell?): String? {
         if (cell == null) return null
 
-        return if (org.apache.poi.ss.usermodel.DateUtil.isCellDateFormatted(cell)) {
-            val date = cell.localDateTimeCellValue.toLocalDate()
-            date.toString()
-        } else {
-            val raw = formatter.formatCellValue(cell).trim()
-            raw.takeIf { it.isNotBlank() }
-                ?.let { timestampNormalizationService.normalizeTimestamp(it) }
+        return when (cell.cellType) {
+            CellType.NUMERIC -> {
+                if (isDateFormattedCell(cell)) {
+                    cell.localDateTimeCellValue.toLocalDate().toString()
+                } else {
+                    normalizeTimestampText(formatter.formatCellValue(cell))
+                }
+            }
+
+            CellType.FORMULA -> {
+                if (cell.cachedFormulaResultType == CellType.NUMERIC && isDateFormattedCell(cell)) {
+                    cell.localDateTimeCellValue.toLocalDate().toString()
+                } else {
+                    normalizeTimestampText(formatter.formatCellValue(cell))
+                }
+            }
+
+            else -> normalizeTimestampText(formatter.formatCellValue(cell))
         }
+    }
+
+    private fun isDateFormattedCell(cell: Cell): Boolean {
+        return try {
+            DateUtil.isCellDateFormatted(cell)
+        } catch (_: IllegalStateException) {
+            false
+        }
+    }
+
+    private fun normalizeTimestampText(rawValue: String): String? {
+        return rawValue.trim()
+            .takeIf { it.isNotBlank() }
+            ?.let { timestampNormalizationService.normalizeTimestamp(it) }
     }
 
     private fun extractNumericCellAsNormalizedString(cell: Cell?): String? {
