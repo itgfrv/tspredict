@@ -13,7 +13,8 @@ import kotlin.io.use
 @Service
 class DatasetSeriesService(
     private val datasetRepository: DatasetRepository,
-    private val minioStorageService: MinioStorageService
+    private val minioStorageService: MinioStorageService,
+    private val timestampNormalizationService: TimestampNormalizationService
 ) {
 
     @Transactional
@@ -54,7 +55,7 @@ class DatasetSeriesService(
         val cells = parseCsvLine(line)
         if (headers.size < 2 || cells.size < 2) return null
 
-        val timestamp = cells[0].trim()
+        val timestamp = timestampNormalizationService.normalizeTimestamp(cells[0])
         val value = cells[1].trim().toDoubleOrNull() ?: return null
         val exogenous = headers.drop(2).mapIndexedNotNull { index, header ->
             val rawValue = cells.getOrNull(index + 2)?.trim() ?: return@mapIndexedNotNull null

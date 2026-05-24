@@ -1,55 +1,55 @@
 spring:
   application:
-    name: tspredict
+    name: "${SPRING_APPLICATION_NAME:tspredict}"
   rabbitmq:
-    host: 2.27.51.143
-    port: 5672
-    username: tspredict
-    password: tspredict
+    host: "${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}"
+    port: ${SPRING_RABBITMQ_PORT:${RABBITMQ_PORT:5672}}
+    username: "${SPRING_RABBITMQ_USERNAME:${RABBITMQ_USER:tspredict}}"
+    password: "${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:tspredict}}"
   datasource:
-    url: jdbc:postgresql://localhost:5432/postgres
-    username: postgres
-    password: postgres
+    url: "${SPRING_DATASOURCE_URL:jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:postgres}}"
+    username: "${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:postgres}}"
+    password: "${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:postgres}}"
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: validate
-    show-sql: true
+      ddl-auto: "${SPRING_JPA_HIBERNATE_DDL_AUTO:validate}"
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${SPRING_JPA_PROPERTIES_HIBERNATE_FORMAT_SQL:false}
 
   liquibase:
-    enabled: true
-    change-log: classpath:db/changelog/db.changelog-master.yaml
+    enabled: ${SPRING_LIQUIBASE_ENABLED:true}
+    change-log: "${SPRING_LIQUIBASE_CHANGE_LOG:classpath:db/changelog/db.changelog-master.yaml}"
   servlet:
     multipart:
-      max-file-size: 20MB
-      max-request-size: 20MB
+      max-file-size: "${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:20MB}"
+      max-request-size: "${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:20MB}"
 
 app:
   security:
     jwt:
-      secret: "Zu92IpbL1zdWfk2t78fPdf6l-S19Ol0Pja6rP6ysMd0kpNJNEGVkNCX97oBPUlt6"
-      expiration-minutes: 60
+      secret: "${APP_SECURITY_JWT_SECRET:${JWT_SECRET:change-me-dev-secret}}"
+      expiration-minutes: ${APP_SECURITY_JWT_EXPIRATION_MINUTES:${JWT_EXPIRATION_MINUTES:60}}
     cors:
-      allowed-origins: http://localhost:5173
+      allowed-origins: "${APP_SECURITY_CORS_ALLOWED_ORIGINS:${FRONTEND_ALLOWED_ORIGINS:http://localhost:5173}}"
   storage:
     minio:
-      endpoint: http://localhost:9000
-      access-key: minioadmin
-      secret-key: minioadmin
-      bucket: tspredict
+      endpoint: "${APP_STORAGE_MINIO_ENDPOINT:${MINIO_ENDPOINT:http://localhost:9000}}"
+      access-key: "${APP_STORAGE_MINIO_ACCESS_KEY:${MINIO_ROOT_USER:minioadmin}}"
+      secret-key: "${APP_STORAGE_MINIO_SECRET_KEY:${MINIO_ROOT_PASSWORD:minioadmin}}"
+      bucket: "${APP_STORAGE_MINIO_BUCKET:${MINIO_BUCKET:tspredict}}"
   forecast-results:
-    enabled: true
-    exchange: tspredict.forecasts
-    queue: tspredict.forecast-results
-    routing-key: forecast.result
+    enabled: ${APP_FORECAST_RESULTS_ENABLED:true}
+    exchange: "${APP_FORECAST_RESULTS_EXCHANGE:tspredict.forecasts}"
+    queue: "${APP_FORECAST_RESULTS_QUEUE:tspredict.forecast-results}"
+    routing-key: "${APP_FORECAST_RESULTS_ROUTING_KEY:forecast.result}"
   forecast-requests:
-    enabled: true
-    exchange: tspredict.forecast-requests
-    routing-key-prefix: forecast.request
+    enabled: ${APP_FORECAST_REQUESTS_ENABLED:true}
+    exchange: "${APP_FORECAST_REQUESTS_EXCHANGE:tspredict.forecast-requests}"
+    routing-key-prefix: "${APP_FORECAST_REQUESTS_ROUTING_KEY_PREFIX:forecast.request}"
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}

@@ -10,7 +10,8 @@ import java.util.UUID
 @Service
 class DatasetSeriesReaderService(
     private val datasetRepository: DatasetRepository,
-    private val minioStorageService: MinioStorageService
+    private val minioStorageService: MinioStorageService,
+    private val timestampNormalizationService: TimestampNormalizationService
 ) {
 
     fun readDatasetSeries(datasetId: UUID): ForecastDatasetPayload {
@@ -42,7 +43,7 @@ class DatasetSeriesReaderService(
                     val cells = parseCsvLine(line)
                     if (cells.size < 2) return@forEach
 
-                    val timestamp = cells[0].trim()
+                    val timestamp = timestampNormalizationService.normalizeTimestamp(cells[0])
                     val value = normalizeNumeric(cells[1]).toDoubleOrNull() ?: return@forEach
                     val exogenousValues = exogenousHeaders.mapIndexed { index, _ ->
                         normalizeNumeric(cells.getOrNull(index + 2).orEmpty()).toDoubleOrNull()

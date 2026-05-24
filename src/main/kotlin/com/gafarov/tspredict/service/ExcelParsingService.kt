@@ -23,7 +23,9 @@ data class ParsedDatasetSeries(
 )
 
 @Service
-class ExcelParsingService {
+class ExcelParsingService(
+    private val timestampNormalizationService: TimestampNormalizationService
+) {
 
     private val formatter = DataFormatter()
 
@@ -177,6 +179,7 @@ class ExcelParsingService {
         } else {
             val raw = formatter.formatCellValue(cell).trim()
             raw.takeIf { it.isNotBlank() }
+                ?.let { timestampNormalizationService.normalizeTimestamp(it) }
         }
     }
 
